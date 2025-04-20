@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from variables import *
 from collections import deque
 from breaker import BreakoutEnv
-from dqn_SAT import CNN_DQN
+from dqn_SA import CNN_DQN
 
 torch.cuda.empty_cache()
 gc.collect()
