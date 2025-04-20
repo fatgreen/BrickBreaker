@@ -60,15 +60,15 @@ class CNN_DQN(nn.Module):
         x = self.conv_layers(x)
         
         # 展平
-        x = x.view(x.size(0), -1)  # (batch * seq_len, flatten_size)
-        x = self.fc_embed(x)  # (batch * seq_len, hidden_size=256)
+        x = x.view(x.size(0), -1)       # (batch * seq_len, flatten_size)
+        x = self.fc_embed(x)            # (batch * seq_len, hidden_size=256)
         x = x.view(batch, seq_len, -1)  # (batch, seq_len, hidden_size=256)
 
         # self attention
         attn_output, _ = self.attention(x, x, x)  # (batch, seq_len, hidden_size)
         
         # x = torch.max(attn_output, dim=1).values  # max pooling over time
-        # x = torch.mean(attn_output, dim=1)  # 平均池化
+        x = torch.mean(attn_output, dim=1)  # 平均池化
         # x = attn_output[:, -1, :]  # 只取最後時間步
         # x = attn_output
 
