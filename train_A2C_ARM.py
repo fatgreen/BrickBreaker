@@ -9,9 +9,11 @@ from torch.nn import functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 
-from variables import *
+from envir.variables import *
+from envir.breaker import BreakoutEnv
+# from variables import *
 from collections import deque
-from breaker import BreakoutEnv
+# from breaker import BreakoutEnv
 # from A2C_ARM import *
 from A2C import *
 from ARM import *
