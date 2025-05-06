@@ -35,6 +35,8 @@ ENTROPY_COEF = 0.05
 EPS_START = 1.0             # initial epsilon
 FRAME_SEQ = 2
 
+HID_SIZE = 256
+
 UPDATE_EVERY = 20
 SAVE_EVERY = 50             # how often to save the network
 MAX_TIMESTEPS = 1000
@@ -55,26 +57,31 @@ class ACAgent:
     def __init__(self, input_shape, num_actions, actor_lr, critic_lr, gamma):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.gamma = gamma
-        self.hx0 = torch.zeros(1, 256, device=self.device)
-        self.cx0 = torch.zeros(1, 256, device=self.device)
+        self.hid_size = HID_SIZE
+
+        self.hx0 = torch.zeros(1, self.hid_size, device=self.device)
+        self.cx0 = torch.zeros(1, self.hid_size, device=self.device)
         self.hidden = (self.hx0, self.cx0)
         self.hidden_learn = (self.hx0, self.cx0)
         self.hidden_Nlearn = (self.hx0, self.cx0)
-        self.alpha_prev = torch.zeros(1, 36864, device=self.device)
-        self.alpha_learn = torch.zeros(1, 36864, device=self.device)
-        self.alpha_Nlearn = torch.zeros(1, 36864, device=self.device)
+        self.alpha_prev = torch.zeros(1, self.hid_size, device=self.device)
+        self.alpha_learn = torch.zeros(1, self.hid_size, device=self.device)
+        self.alpha_Nlearn = torch.zeros(1, self.hid_size, device=self.device)
 
         self.cnn = CNN_LAYER(input_shape).to(self.device)
+        self.proj = nn.Linear(36864, self.hid_size)  # (1, 36864) -> (1,256)
+
         if RNN_MODE == "ARM":
-            self.rnn = ARM(input_size = 36864, hidden_size = 256, num_env=1, device = self.device).to(self.device)
+            self.rnn = ARM(input_size = self.hid_size, hidden_size = self.hid_size, num_env=1, device = self.device).to(self.device)
         elif RNN_MODE == "LSTM":
-            self.rnn = nn.LSTMCell(input_size=36864, hidden_size=256).to(self.device)
+            self.rnn = nn.LSTMCell(input_size=36864, hidden_size=self.hid_size).to(self.device)
         elif RNN_MODE == "GRU":
             self.rnn = nn.GRUCell(input_size=36864, hidden_size=256).to(self.device)
         else:
             raise ValueError("Invalid RNN mode. Choose from 'ARM', 'LSTM', or 'GRU'.")
-        self.actor = Actor(36864, num_actions).to(self.device)
-        self.critic = Critic(36864).to(self.device)
+        
+        self.actor = Actor(self.hid_size, num_actions).to(self.device)
+        self.critic = Critic(self.hid_size).to(self.device)
 
         # self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=actor_lr)
         # self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=critic_lr)
@@ -82,12 +89,6 @@ class ACAgent:
             list(self.rnn.parameters()) + list(self.actor.parameters()), lr=actor_lr)
         self.critic_optimizer = torch.optim.Adam(
             list(self.rnn.parameters()) + list(self.critic.parameters()), lr=critic_lr)
-
-        # ARM 的 hidden state 和 alpha 初值，batch=1
-        hx0 = torch.zeros(1, 256, device=self.device)
-        cx0 = torch.zeros(1, 256, device=self.device)
-        self.hidden     = (hx0, cx0)
-        self.alpha_prev = torch.zeros(1, 36864, device=self.device)
 
     def preprocess_frame(self, frame):
         """State frame preprocess"""
@@ -102,6 +103,8 @@ class ACAgent:
         with torch.no_grad(): 
             feat = self.cnn(state)
             feat = feat.view(feat.size(0),-1)
+            feat = self.proj(feat)  
+            
 
             if RNN_MODE == "ARM":
                 (hx_new, Yt), alpha_new, _, _ = self.rnn(feat, self.hidden, self.alpha_prev)
@@ -158,12 +161,14 @@ class ACAgent:
             frame = states[t]           # (1, 1, H, W)
             feat = self.cnn(frame)
             feat = feat.view(feat.size(0),-1)
+            feat = self.proj(feat)      # (1, 36864) -> (1, 256)
+            
             (hx_new, Yt), alpha_new, _, _ = self.rnn(feat, hidden, alpha_prev)
             hidden     = (hx_new, Yt)    # 更新 hidden
             alpha_prev = alpha_new       # 更新 alpha
             Yt_list.append(Yt)
-        self.hidden_learn = hidden
-        self.alpha_learn = alpha_prev
+        self.hidden_learn = (hidden[0].detach(), hidden[1].detach())
+        self.alpha_learn = alpha_prev.detach()
         
         Yt_tensor = torch.cat(Yt_list, dim=0)
         values = self.critic(Yt_tensor.detach())        # (B,1)
@@ -177,12 +182,14 @@ class ACAgent:
             frame = next_states[t]           # (1, 1, H, W)
             feat = self.cnn(frame)
             feat = feat.view(feat.size(0),-1)
+            feat = self.proj(feat)      # (1, 36864) -> (1, 256)
+            
             (hx_new, Yt), alpha_new, _, _ = self.rnn(feat, hidden, alpha_prev)
             hidden     = (hx_new, Yt)    # 更新 hidden
             alpha_prev = alpha_new       # 更新 alpha
             Yt_list.append(Yt)
-        self.hidden_Nlearn = hidden
-        self.alpha_Nlearn = alpha_prev
+        self.hidden_Nlearn = (hidden[0].detach(), hidden[1].detach())
+        self.alpha_Nlearn = alpha_prev.detach()
 
         Yt_tensor = torch.cat(Yt_list, dim=0)
         next_values = self.critic(Yt_tensor.detach())   # (B,1)
@@ -261,14 +268,14 @@ if __name__ == "__main__":
                 'dones': [],
             }
             # Initialize parameters for ARM every start at the episode
-            hx0 = torch.zeros(1, 256, device="cpu")
-            cx0 = torch.zeros(1, 256, device="cpu")
+            hx0 = torch.zeros(1, HID_SIZE, device="cpu")
+            cx0 = torch.zeros(1, HID_SIZE, device="cpu")
             ACAgent.hidden = (hx0, cx0)
             ACAgent.hidden_learn = (hx0, cx0)
             ACAgent.hidden_Nlearn = (hx0, cx0)
-            ACAgent.alpha_prev = torch.zeros(1, 256, device="cpu")
-            ACAgent.alpha_learn = torch.zeros(1, 256, device="cpu")
-            ACAgent.alpha_Nlearn = torch.zeros(1, 256, device="cpu")
+            ACAgent.alpha_prev = torch.zeros(1, HID_SIZE, device="cpu")
+            ACAgent.alpha_learn = torch.zeros(1, HID_SIZE, device="cpu")
+            ACAgent.alpha_Nlearn = torch.zeros(1, HID_SIZE, device="cpu")
 
             for step in range(MAX_TIMESTEPS):
             # print(torch.cuda.memory_allocated())

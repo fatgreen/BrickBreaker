@@ -5,8 +5,8 @@ import torch.nn.functional as F
 class ARM(nn.Module):
     def __init__(self, input_size, hidden_size, num_env, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         super().__init__()
-        self.W = nn.Linear(input_size, hidden_size)  # (256 -> |a|*16)   Wf
-        self.U = nn.Linear(hidden_size, hidden_size)  # (|a|*16 -> |a|*16)   Wh
+        self.Wf = nn.Linear(input_size, hidden_size)  # (256 -> |a|*16)   Wf
+        self.Wh = nn.Linear(hidden_size, hidden_size)  # (|a|*16 -> |a|*16)   Wh
         self.Wx = nn.Linear(hidden_size, input_size)  # (|a|*16 -> 256)   from Wx.+b
         self.Yh = nn.Linear(input_size, hidden_size)  # (256 -> |a|*16)   from tranform to yt
 
@@ -24,8 +24,8 @@ class ARM(nn.Module):
     def forward(self, state, hidden, alpha_prev):  # use yt
         hx, yx = hidden
         alpha_prev = alpha_prev.to(self.device)
-        s = self.W(state)
-        h = self.U(hx)
+        s = self.Wf(state)
+        h = self.Wh(hx)
         s_h_sum = s + h
         k_t = torch.tanh(self.a * s_h_sum)
         s_t = self.Wx(k_t)
@@ -44,16 +44,3 @@ class ARM(nn.Module):
         # print('arm')
 
         return (hx_new, Yt), alpha_new.detach(), self.a.mean(), self.beta.mean()
-
-
-if __name__ == '__main__':
-    state = torch.FloatTensor(6, 256).cuda()
-    hx = torch.FloatTensor(6, 96).cuda()
-    cx = torch.FloatTensor(6, 96).cuda()
-    hidden = (hx, cx)
-    alpha = torch.FloatTensor(6, 256).cuda()
-    rnn = ARM(state.shape[1], hx.shape[1], 6).cuda()
-    hidden = rnn(state, hidden, alpha)
-    # for name, parameters in rnn.named_parameters():
-    #     print(name, ':', parameters.size())
-    # print(list(rnn.parameters()))
