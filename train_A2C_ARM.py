@@ -9,11 +9,12 @@ from torch.nn import functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 
-from envir.variables import *
-from envir.breaker import BreakoutEnv
-# from variables import *
+# from envir.variables import *
+# from envir.breaker import BreakoutEnv
+from variables import *
+from breaker import BreakoutEnv
+
 from collections import deque
-# from breaker import BreakoutEnv
 # from A2C_ARM import *
 from A2C import *
 from ARM import *
@@ -27,18 +28,21 @@ TRAIN = True               # train or test
 LOAD_MODEL = False
 SAVE_MODEL = True
 
-GAMMA = 0.985                # discount factor
+GAMMA = 0.99                # discount factor
 LR_CRT = 1e-4             # initial learning rate
 LR_ACT = 1e-3
 ENTROPY_COEF = 0.05
 EPS_START = 1.0             # initial epsilon
 FRAME_SEQ = 2
 
-UPDATE_EVERY = 5
+UPDATE_EVERY = 20
 SAVE_EVERY = 50             # how often to save the network
 MAX_TIMESTEPS = 1000
 N_EPISODES = int(1e4)
 # SAVE_DIR = "./!BB/train2/"
+
+RNN_MODE = "ARM"  
+
 SAVE_DIR = "/content/drive/MyDrive/CCU/BB/Out_A2C/"
 MODEL_SELECT = "model_episode1550.pth"
 LOG_SAVE_NAME = "out_A2C"
@@ -51,9 +55,24 @@ class ACAgent:
     def __init__(self, input_shape, num_actions, actor_lr, critic_lr, gamma):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.gamma = gamma
+        self.hx0 = torch.zeros(1, 256, device=self.device)
+        self.cx0 = torch.zeros(1, 256, device=self.device)
+        self.hidden = (self.hx0, self.cx0)
+        self.hidden_learn = (self.hx0, self.cx0)
+        self.hidden_Nlearn = (self.hx0, self.cx0)
+        self.alpha_prev = torch.zeros(1, 36864, device=self.device)
+        self.alpha_learn = torch.zeros(1, 36864, device=self.device)
+        self.alpha_Nlearn = torch.zeros(1, 36864, device=self.device)
 
         self.cnn = CNN_LAYER(input_shape).to(self.device)
-        self.rnn = ARM(input_size = 36864, hidden_size = 256, num_env=1, device = self.device).to(self.device)
+        if RNN_MODE == "ARM":
+            self.rnn = ARM(input_size = 36864, hidden_size = 256, num_env=1, device = self.device).to(self.device)
+        elif RNN_MODE == "LSTM":
+            self.rnn = nn.LSTMCell(input_size=36864, hidden_size=256).to(self.device)
+        elif RNN_MODE == "GRU":
+            self.rnn = nn.GRUCell(input_size=36864, hidden_size=256).to(self.device)
+        else:
+            raise ValueError("Invalid RNN mode. Choose from 'ARM', 'LSTM', or 'GRU'.")
         self.actor = Actor(36864, num_actions).to(self.device)
         self.critic = Critic(36864).to(self.device)
 
@@ -84,10 +103,29 @@ class ACAgent:
             feat = self.cnn(state)
             feat = feat.view(feat.size(0),-1)
 
-            (hx_new, Yt), alpha_new, _, _ = self.rnn(feat, self.hidden, self.alpha_prev)
+            if RNN_MODE == "ARM":
+                (hx_new, Yt), alpha_new, _, _ = self.rnn(feat, self.hidden, self.alpha_prev)
+            elif RNN_MODE == "LSTM":
+                hx_new, Yt = self.rnn(feat, self.hidden[0])
+                Yt = hx_new
+            elif RNN_MODE == "GRU":
+                hx_new = self.rnn(feat, self.hidden[0])
+                Yt = hx_new
+            else:
+                raise ValueError("Invalid RNN mode. Choose from 'ARM', 'LSTM', or 'GRU'.")
 
-        self.hidden     = (hx_new.detach(), Yt.detach())    # 更新 hidden
-        self.alpha_prev = alpha_new.detach()       # 更新 alpha
+        if RNN_MODE == "ARM":
+            Yt = Yt.view(Yt.size(0), -1)
+            self.hidden     = (hx_new.detach(), Yt.detach())    # 更新 hidden
+            self.alpha_prev = alpha_new.detach()       # 更新 alpha
+        elif RNN_MODE == "LSTM":
+            Yt = Yt.view(Yt.size(0), -1)
+            self.hidden     = (hx_new.detach(), Yt.detach())
+        elif RNN_MODE == "GRU":
+            Yt = Yt.view(Yt.size(0), -1)
+            self.hidden     = (hx_new.detach(), Yt.detach())
+        else:
+            raise ValueError("Invalid RNN mode. Choose from 'ARM', 'LSTM', or 'GRU'.")
         
         probs = self.actor(Yt)  # (1, num_actions)
         # 创建以probs为标准类型的数据分布
@@ -112,10 +150,8 @@ class ACAgent:
         """Critic:  state value Q(s) Q(s')"""
         # Q(s) with ARM
         T, C1, C2, H, W = states.shape
-        hx0 = torch.zeros(1, 256, device=self.device)
-        cx0 = torch.zeros(1, 256, device=self.device)
-        hidden     = (hx0, cx0)
-        alpha_prev = torch.zeros(1, 36864, device=self.device)
+        hidden = self.hidden_learn
+        alpha_prev = self.alpha_learn
         Yt_list = []
 
         for t in range(T):              # T * (1 ,1 ,H, W)
@@ -126,15 +162,16 @@ class ACAgent:
             hidden     = (hx_new, Yt)    # 更新 hidden
             alpha_prev = alpha_new       # 更新 alpha
             Yt_list.append(Yt)
+        self.hidden_learn = hidden
+        self.alpha_learn = alpha_prev
+        
         Yt_tensor = torch.cat(Yt_list, dim=0)
         values = self.critic(Yt_tensor.detach())        # (B,1)
 
+
         # Q(s') with ARM
-        # T, C1, C2, H, W = next_states.shape
-        hx0 = torch.zeros(1, 256, device=self.device)
-        cx0 = torch.zeros(1, 256, device=self.device)
-        hidden     = (hx0, cx0)
-        alpha_prev = torch.zeros(1, 36864, device=self.device)
+        hidden = self.hidden_Nlearn
+        alpha_prev = self.alpha_Nlearn
         Yt_list = []
         for t in range(T):              # T * (1 ,1 ,H, W)
             frame = next_states[t]           # (1, 1, H, W)
@@ -144,6 +181,9 @@ class ACAgent:
             hidden     = (hx_new, Yt)    # 更新 hidden
             alpha_prev = alpha_new       # 更新 alpha
             Yt_list.append(Yt)
+        self.hidden_Nlearn = hidden
+        self.alpha_Nlearn = alpha_prev
+
         Yt_tensor = torch.cat(Yt_list, dim=0)
         next_values = self.critic(Yt_tensor.detach())   # (B,1)
 
@@ -223,8 +263,12 @@ if __name__ == "__main__":
             # Initialize parameters for ARM every start at the episode
             hx0 = torch.zeros(1, 256, device="cpu")
             cx0 = torch.zeros(1, 256, device="cpu")
-            ACAgent.hidden     = (hx0, cx0)
+            ACAgent.hidden = (hx0, cx0)
+            ACAgent.hidden_learn = (hx0, cx0)
+            ACAgent.hidden_Nlearn = (hx0, cx0)
             ACAgent.alpha_prev = torch.zeros(1, 256, device="cpu")
+            ACAgent.alpha_learn = torch.zeros(1, 256, device="cpu")
+            ACAgent.alpha_Nlearn = torch.zeros(1, 256, device="cpu")
 
             for step in range(MAX_TIMESTEPS):
             # print(torch.cuda.memory_allocated())
@@ -290,7 +334,8 @@ if __name__ == "__main__":
 
             # save the network every episode
             # if episode % SAVE_EVERY == 0 and SAVE_MODEL:
-            #     torch.save(agent.q_network.state_dict(), SAVE_DIR + f'model_episode{episode}.pth')
+            #     torch.save(agent.actor.state_dict(), SAVE_DIR + f'actor_model_episode{episode}.pth')
+            #     torch.save(agent.critic.state_dict(), SAVE_DIR + f'critic_model_episode{episode}.pth')
 
             outStr = "Episode: {}  Steps: {}  Reward: {}  Living_Rate/10: {:.3f}  Done: {} | Critic_loss: {:.3f}  Actor_loss: {:.3f}".format(
                             episode, steps, env.score, living_rate, done, loss_crt, loss_act)
