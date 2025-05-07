@@ -15,8 +15,8 @@ from variables import *
 from breaker import BreakoutEnv
 
 from collections import deque
-# from A2C_ARM import *
-from A2C import *
+from A2C_ARM import *
+# from A2C import *
 from ARM import *
 
 torch.cuda.empty_cache()
@@ -37,7 +37,7 @@ FRAME_SEQ = 2
 
 HID_SIZE = 256
 
-UPDATE_EVERY = 20
+UPDATE_EVERY = 5
 SAVE_EVERY = 50             # how often to save the network
 MAX_TIMESTEPS = 1000
 N_EPISODES = int(1e4)
