@@ -1,9 +1,9 @@
 import pygame
 from pygame.locals import QUIT
-from variables import *
-from paddle import paddle
-from ball import game_ball
-from level1 import level1
+from envir.variables import *
+from envir.paddle import paddle
+from envir.ball import game_ball
+from envir.level1 import level1
 import numpy as np
 class BreakoutEnv:
     def __init__(self):
@@ -28,7 +28,8 @@ class BreakoutEnv:
 
     def step(self, action):
         
-        reward = -1
+        # reward = -1
+        reward = 0
         done = False
         
         # 處理動作（0: 不動, 1: 向左, 2: 向右）

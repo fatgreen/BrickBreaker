@@ -1,7 +1,5 @@
 from pygame import Rect, Vector2
-from variables import *
-from pygame import Rect, Vector2
-from variables import *
+from envir.variables import *
 import random
 class game_ball:
     def __init__(self, x, y, ball_size=7):

@@ -1,5 +1,5 @@
 from pygame import *
-from variables import *
+from envir.variables import *
 
 class level1:
     def __init__(self):

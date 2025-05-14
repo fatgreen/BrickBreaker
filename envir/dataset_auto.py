@@ -1,8 +1,8 @@
 import numpy as np
 import cv2
 import random
-from breaker import BreakoutEnv  # 導入打磚塊遊戲環境
-from variables import screen_width, screen_height, fps
+from envir.breaker import BreakoutEnv  # 導入打磚塊遊戲環境
+from envir.variables import screen_width, screen_height, fps
 import pygame
 from pygame.locals import QUIT
 # 初始化打磚塊遊戲環境
@@ -111,4 +111,3 @@ except ValueError as e:
     print(f"current_frames 長度：{len(current_frames)}")
     print(f"actions 長度：{len(actions)}")
     print(f"next_frames 長度：{len(next_frames)}")
->>>>>>> dfdb593491ad64a1d03a6ec4017da42a1cdbae03

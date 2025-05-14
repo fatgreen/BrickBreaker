@@ -1,0 +1,21 @@
+# 忽略 Python 編譯檔
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+
+# 忽略虛擬環境
+.venv/
+venv/
+env/
+
+# output model
+output_A2C/
+
+# 忽略套件資訊
+*.egg-info/
+dist/
+build/
+
+# 忽略 VSCode 設定
+.vscode/

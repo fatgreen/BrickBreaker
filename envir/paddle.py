@@ -1,5 +1,5 @@
 import pygame
-from variables import screen_width, screen_height, cols, paddle_col, paddle_outline
+from envir.variables import screen_width, screen_height, cols, paddle_col, paddle_outline
 
 class paddle:
     def __init__(self, height=10, width=None, speed=5, radius=5, border=2):

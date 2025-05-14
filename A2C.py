@@ -11,7 +11,7 @@ class CNN_LAYER(nn.Module):
         super(CNN_LAYER, self).__init__()
         # Convolution
         self.conv_layers = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=5, stride=2, padding=2),  
+            nn.Conv2d(4, 16, kernel_size=5, stride=2, padding=2),  
             nn.ReLU(),
             nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1),  
             nn.ReLU(),
@@ -31,9 +31,9 @@ class CNN_LAYER(nn.Module):
         """
         if len(x.shape) == 4:
             feat = self.conv_layers(x)      # (B, feat_dim)
-        elif len(x.shape) == 5:
-            B, T, C, H, W = x.size()
-            x = x.view(B*T, C, H, W)        # 移除第 2 維 
+        elif len(x.shape) == 5:             # (T, 1, C, H, W)
+            S, B, C, H, W = x.size()
+            x = x.view(B, S*C, H, W)        # 移除第 2 維 
             feat = self.conv_layers(x)
         else:
             print("state.shape error:", x.shape)
